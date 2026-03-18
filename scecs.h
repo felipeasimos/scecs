@@ -15,7 +15,7 @@ typedef struct {
 } SparseSetPage;
 
 typedef struct {
-	SparseSetPage* pages;
+	SparseSetPage** pages;
 	unsigned int pages_len;
 	unsigned int *dense;
 	unsigned int dense_len;
@@ -38,7 +38,7 @@ SparseSetPage* SS_getPage(SparseSet* set, unsigned sparse_index) {
 		return NULL;
 	}
 	if(page_index < set->pages_len) {
-		page = &set->pages[page_index];
+		page = set->pages[page_index];
 		return page;
 	}
 	return NULL;
@@ -49,12 +49,14 @@ SparseSetPage* SS_getOrCreatePage(SparseSet* set, unsigned sparse_index) {
 	if(!page) {
 		unsigned int page_index = SS_getPageIndex(sparse_index);
 		unsigned int diff = page_index - set->pages_len + 1;
-		set->pages = (SparseSetPage*)realloc(set->pages, (set->pages_len + diff) * sizeof(SparseSetPage));
+		set->pages = (SparseSetPage**)realloc(set->pages, (set->pages_len + diff) * sizeof(SparseSetPage*));
 		for(unsigned int i = 0; i < diff; i++) {
-			set->pages[i + set->pages_len].len = 0;
+			printf("i: %u\n", i + set->pages_len);
+			set->pages[i + set->pages_len] = (SparseSetPage*)malloc(sizeof(SparseSetPage));
+			set->pages[i + set->pages_len]->len = 0;
 		}
 		set->pages_len += diff;
-		page = &set->pages[set->pages_len-1];
+		page = set->pages[set->pages_len-1];
 		page->len = 0;
 	}
 	return page;
@@ -107,6 +109,9 @@ int SS_remove(SparseSet *set, unsigned int sparse_index) {
 }
 
 void SS_deinit(SparseSet *set) {
+	for(unsigned int i = 0; i < set->pages_len; i++) {
+		free(set->pages[i]);
+	}
 	free(set->pages);
 	free(set->dense);
 }
