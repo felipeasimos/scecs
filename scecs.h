@@ -1,5 +1,6 @@
 // Sparse set C ECS (SCECS)
-
+#include <assert.h>
+#include <stdlib.h>
 typedef struct {
 	unsigned int index;
 	unsigned int version;
@@ -28,7 +29,7 @@ int SS_getPageIndex(unsigned int sparse_index) {
 }
 
 int SS_getPageInnerIndex(unsigned int sparse_index) {
-	return sparse_index & PAGE_SIZE_MASK;
+	return (sparse_index & PAGE_SIZE_MASK);
 }
 
 SparseSetPage* SS_getPage(SparseSet* set, unsigned sparse_index) {
@@ -51,7 +52,6 @@ SparseSetPage* SS_getOrCreatePage(SparseSet* set, unsigned sparse_index) {
 		unsigned int diff = page_index - set->pages_len + 1;
 		set->pages = (SparseSetPage**)realloc(set->pages, (set->pages_len + diff) * sizeof(SparseSetPage*));
 		for(unsigned int i = 0; i < diff; i++) {
-			printf("i: %u\n", i + set->pages_len);
 			set->pages[i + set->pages_len] = (SparseSetPage*)malloc(sizeof(SparseSetPage));
 			set->pages[i + set->pages_len]->len = 0;
 		}
@@ -248,10 +248,6 @@ COMPONENTS
 #define WORLD_INIT(world_ptr) worldInit(world_ptr)
 #define WORLD_DEINIT(world_ptr) worldDeinit(world_ptr)
 
-#define ENTITY_CREATE(world_ptr) entityCreate(world_ptr)
-
-#define ENTITY_VALID(world_ptr, entt) entityValid(world_ptr, entt)
-
 #define ENTITY_HAS(world_ptr, entt, component) \
 	SparseSet ## component ## Contains(&(world_ptr)->SparseSet ## component, entt.index)
 
@@ -285,6 +281,10 @@ COMPONENTS
 	void component ## Remove(World* world, Entity entt) { \
 		assert(ENTITY_HAS(world, entt, component)); \
 		return ENTITY_REMOVE(world, entt, component); \
-	}
+	} \
+	typedef struct { \
+		unsigned int len; \
+		component* data; \
+	} component ## Slice;
 
 COMPONENTS
