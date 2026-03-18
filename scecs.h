@@ -252,7 +252,7 @@ int entityValid(World* world, Entity entt) {
 	}
 	return world->ids[entt.index].version == entt.version;
 }
-
+#include<stdio.h>
 void entityDestroy(World* world, Entity entt) {
 	assert(entityValid(world, entt));
 #undef COMPONENT
