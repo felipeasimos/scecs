@@ -54,10 +54,10 @@ SparseSetPage* SS_getOrCreatePage(SparseSet* set, unsigned sparse_index) {
 		for(unsigned int i = 0; i < diff; i++) {
 			set->pages[i + set->pages_len] = (SparseSetPage*)malloc(sizeof(SparseSetPage));
 			set->pages[i + set->pages_len]->len = 0;
+			for(unsigned int j = 0; j < PAGE_SIZE; j++) set->pages[i + set->pages_len]->dense_idxs[j] = 0;
 		}
 		set->pages_len += diff;
 		page = set->pages[set->pages_len-1];
-		page->len = 0;
 	}
 	return page;
 }
@@ -66,8 +66,6 @@ int SS_contains(SparseSet* set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getPage(set, sparse_index);
 	if(!page) return 0;
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
-
-	if(page_inner_index >= page->len) return 0;
 	return page->dense_idxs[page_inner_index];
 }
 
@@ -75,15 +73,12 @@ int SS_contains(SparseSet* set, unsigned int sparse_index) {
 int SS_add(SparseSet *set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getOrCreatePage(set, sparse_index);
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
-	page->dense_idxs[page_inner_index] = set->dense_len + 1;
+	page->dense_idxs[page_inner_index] = ++set->dense_len;
 	page->len += 1;
-	set->dense_len += 1;
-	if(set->dense_len - 1 >= set->dense_capacity) {
+	if(set->dense_len >= set->dense_capacity) {
+		set->dense_capacity = (set->dense_capacity << 1) + 1;
+		set->dense = (unsigned int*)realloc(set->dense, (set->dense_capacity) * sizeof(unsigned int));
 
-		unsigned int new_capacity = (set->dense_capacity << 1) + 1;
-		set->dense = (unsigned int*)realloc(set->dense, (new_capacity) * sizeof(unsigned int));
-
-		set->dense_capacity = new_capacity;
 		set->dense[set->dense_len-1] = sparse_index;
 		return 1;
 	}
@@ -101,11 +96,15 @@ int SS_remove(SparseSet *set, unsigned int sparse_index) {
 	if(dense_index >= set->dense_len) return 0;
 	page->dense_idxs[page_inner_index] = 0;
 
+	if(dense_index == set->dense_len-1) {
+		goto final;
+	}
 	// swap remove dense 
 	sparse_index = set->dense[dense_index] = set->dense[set->dense_len-1];
 	page = SS_getPage(set, sparse_index);
 	page_inner_index = SS_getPageInnerIndex(sparse_index);
 	page->dense_idxs[page_inner_index] = dense_index + 1;
+final:
 	set->dense_len -= 1;
 	return dense_index + 1;
 }
@@ -135,8 +134,9 @@ void SS_init(SparseSet* set) {
 		return SS_contains(&set->set, sparse_index); \
 	} \
 	void SparseSet ## component ## Add(SparseSet ## component* set, component data, unsigned int sparse_index) { \
-		if(!SS_add(&set->set, sparse_index)) return; \
-		set->data = (component*)realloc(set->data, (set->set.dense_capacity) * sizeof(component)); \
+		if(SS_add(&set->set, sparse_index)) { \
+			set->data = (component*)realloc(set->data, (set->set.dense_capacity) * sizeof(component)); \
+		} \
 		set->data[set->set.dense_len - 1] = data; \
 	} \
 	void SparseSet ## component ## Remove(SparseSet ## component* set, unsigned int sparse_index) { \
@@ -180,6 +180,25 @@ typedef struct {
 	unsigned int free_list_capacity;
 } World;
 
+
+#define WORLD_INIT(world_ptr) worldInit(world_ptr)
+#define WORLD_DEINIT(world_ptr) worldDeinit(world_ptr)
+
+#define ENTITY_HAS(world_ptr, entt, component) \
+	SparseSet ## component ## Contains(&(world_ptr)->SparseSet ## component, entt.index)
+
+
+#define ENTITY_GET(world_ptr, entt, component) \
+	SparseSet ## component ## Get(&(world_ptr)->SparseSet ## component, entt.index)
+
+
+#define ENTITY_ADD(world_ptr, entt, component, data) \
+	SparseSet ## component ## Add(&(world_ptr)-> SparseSet ## component, data, entt.index)
+
+
+#define ENTITY_REMOVE(world_ptr, entt, component) \
+	SparseSet ## component ## Remove(&(world_ptr)-> SparseSet ## component, entt.index)
+
 void worldInit(World* world) {
 	world->ids = 0;
 	world->free_list = 0;
@@ -209,12 +228,10 @@ Entity entityCreate(World* world) {
 		world->free_list_len -= 1;
 		return new_entt;
 	}
-	unsigned int new_index = world->ids_len;
 	Entity new_entt = {
-		.index = new_index,
+		.index = world->ids_len++,
 		.version = 0,
 	};
-	world->ids_len += 1;
 	if(world->ids_len - 1 >= world->ids_capacity) {
 		world->ids_capacity = (world->ids_capacity << 1) + 1;
 		world->ids = (Entity*)realloc(world->ids, world->ids_capacity * sizeof(Entity));
@@ -228,13 +245,18 @@ int entityValid(World* world, Entity entt) {
 	if(entt.index >= world->ids_len) {
 		return 0;
 	}
+	for(unsigned int i = 0; i < world->free_list_len; i++) {
+		if(world->free_list[i] == entt.index) {
+			return 0;
+		}
+	}
 	return world->ids[entt.index].version == entt.version;
 }
 
 void entityDestroy(World* world, Entity entt) {
 	assert(entityValid(world, entt));
 #undef COMPONENT
-#define COMPONENT(component) SparseSet ## component ## Remove(&(world)-> SparseSet ## component, entt.index);
+#define COMPONENT(component) if(ENTITY_HAS(world, entt, component)) ENTITY_REMOVE(world, entt, component);
 COMPONENTS
 	if(world->free_list_len == world->free_list_capacity) {
 		world->free_list_capacity = (world->free_list_capacity << 1) + 1;
@@ -245,23 +267,19 @@ COMPONENTS
 	world->ids[entt.index].version += 1;
 }
 
-#define WORLD_INIT(world_ptr) worldInit(world_ptr)
-#define WORLD_DEINIT(world_ptr) worldDeinit(world_ptr)
+typedef struct {
+	unsigned int* entts;
+	unsigned int index;
+	World* world;
+} EntityIterator;
 
-#define ENTITY_HAS(world_ptr, entt, component) \
-	SparseSet ## component ## Contains(&(world_ptr)->SparseSet ## component, entt.index)
-
-
-#define ENTITY_GET(world_ptr, entt, component) \
-	SparseSet ## component ## Get(&(world_ptr)->SparseSet ## component, entt.index)
-
-
-#define ENTITY_ADD(world_ptr, entt, component, data) \
-	SparseSet ## component ## Add(&(world_ptr)-> SparseSet ## component, data, entt.index)
-
-
-#define ENTITY_REMOVE(world_ptr, entt, component) \
-	SparseSet ## component ## Remove(&(world_ptr)-> SparseSet ## component, entt.index)
+int entityNext(EntityIterator* iter, Entity* entt) {
+	if(!iter->index) return 0;
+	iter->index -= 1;
+	assert(iter->index < iter->world->ids_len);
+	*entt = iter->world->ids[iter->entts[iter->index]];
+	return 1;
+}
 
 // declare component funtions
 #undef COMPONENT
@@ -282,9 +300,15 @@ COMPONENTS
 		assert(ENTITY_HAS(world, entt, component)); \
 		return ENTITY_REMOVE(world, entt, component); \
 	} \
-	typedef struct { \
-		unsigned int len; \
-		component* data; \
-	} component ## Slice;
+	EntityIterator component ## EntityIterator(World* world) { \
+		EntityIterator iter = { \
+			.entts = (world-> SparseSet ## component).set.dense, \
+			.index = (world-> SparseSet ## component).set.dense_len, \
+			.world = world, \
+		}; \
+		return iter; \
+	}
 
 COMPONENTS
+
+// https://stackoverflow.com/questions/1872220/is-it-possible-to-iterate-over-arguments-in-variadic-macros
