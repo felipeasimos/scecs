@@ -66,6 +66,7 @@ int SS_contains(SparseSet* set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getPage(set, sparse_index);
 	if(!page) return 0;
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
+
 	if(page_inner_index >= page->len) return 0;
 	return page->dense_idxs[page_inner_index];
 }
@@ -75,12 +76,13 @@ int SS_add(SparseSet *set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getOrCreatePage(set, sparse_index);
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
 	page->dense_idxs[page_inner_index] = set->dense_len + 1;
-	if(set->dense_len == set->dense_capacity) {
+	page->len += 1;
+	set->dense_len += 1;
+	if(set->dense_len - 1 >= set->dense_capacity) {
 
 		unsigned int new_capacity = (set->dense_capacity << 1) + 1;
 		set->dense = (unsigned int*)realloc(set->dense, (new_capacity) * sizeof(unsigned int));
 
-		set->dense_len += 1;
 		set->dense_capacity = new_capacity;
 		set->dense[set->dense_len-1] = sparse_index;
 		return 1;
@@ -105,7 +107,7 @@ int SS_remove(SparseSet *set, unsigned int sparse_index) {
 	page_inner_index = SS_getPageInnerIndex(sparse_index);
 	page->dense_idxs[page_inner_index] = dense_index + 1;
 	set->dense_len -= 1;
-	return dense_index;
+	return dense_index + 1;
 }
 
 void SS_deinit(SparseSet *set) {
@@ -129,25 +131,29 @@ void SS_init(SparseSet* set) {
 		SparseSet set; \
 		component* data; \
 	} SparseSet ## component; \
-	void component ## Add(SparseSet ## component* set, component data, unsigned int sparse_index) { \
+	int SparseSet ## component ## Contains(SparseSet ## component* set, unsigned int sparse_index) { \
+		return SS_contains(&set->set, sparse_index); \
+	} \
+	void SparseSet ## component ## Add(SparseSet ## component* set, component data, unsigned int sparse_index) { \
 		if(!SS_add(&set->set, sparse_index)) return; \
 		set->data = (component*)realloc(set->data, (set->set.dense_capacity) * sizeof(component)); \
 		set->data[set->set.dense_len - 1] = data; \
 	} \
-	void component ## Remove(SparseSet ## component* set, unsigned int sparse_index) { \
+	void SparseSet ## component ## Remove(SparseSet ## component* set, unsigned int sparse_index) { \
 		unsigned int dense_index = SS_remove(&set->set, sparse_index); \
-		if(set->set.dense_len == 0 || dense_index == set->set.dense_len - 1) return; \
-		set->data[dense_index] = set->data[set->set.dense_len]; \
+		if(!dense_index || set->set.dense_len == 0 || dense_index == set->set.dense_len) return; \
+		set->data[dense_index-1] = set->data[set->set.dense_len]; \
 	} \
-	component* component ## Get(SparseSet ## component* set, unsigned int sparse_index) { \
+	component* SparseSet ## component ## Get(SparseSet ## component* set, unsigned int sparse_index) { \
 		unsigned int dense_index = SS_contains(&set->set, sparse_index); \
-		return &set->data[dense_index]; \
+		if(!dense_index) return 0; \
+		return &set->data[dense_index - 1]; \
 	} \
-	void component ## Init(SparseSet ## component* set) { \
+	void SparseSet ## component ## Init(SparseSet ## component* set) { \
 		SS_init(&set->set); \
 		set->data = 0; \
 	} \
-	void component ## Deinit(SparseSet ## component* set) { \
+	void SparseSet ## component ## Deinit(SparseSet ## component* set) { \
 		SS_deinit(&set->set); \
 		free(set->data); \
 	}
@@ -159,7 +165,7 @@ void SS_init(SparseSet* set) {
 
 COMPONENTS
 
-// declare sparse set fields
+// declare sparse set fields in world
 #undef COMPONENT
 #define COMPONENT(component) SparseSet ## component SparseSet ## component;
 
@@ -168,22 +174,27 @@ typedef struct {
 
 	Entity* ids;
 	unsigned int ids_len;
+	unsigned int ids_capacity;
 	unsigned int* free_list;
 	unsigned int free_list_len;
 	unsigned int free_list_capacity;
 } World;
 
 void worldInit(World* world) {
-	world->ids_len = 0;
+	world->ids = 0;
+	world->free_list = 0;
+	world->ids_len = world->ids_capacity = 0;
 	world->free_list_len = world->free_list_capacity = 0;
 #undef COMPONENT
-#define COMPONENT(component) component ## Init (&(world-> SparseSet ## component));
+#define COMPONENT(component) SparseSet ## component ## Init (&(world-> SparseSet ## component));
 	COMPONENTS
 }
 
 void worldDeinit(World* world) {
+	free(world->ids);
+	free(world->free_list);
 #undef COMPONENT
-#define COMPONENT(component) component ## Deinit (&(world-> SparseSet ## component));
+#define COMPONENT(component) SparseSet ## component ## Deinit (&(world-> SparseSet ## component));
 	COMPONENTS
 }
 
@@ -195,23 +206,43 @@ Entity entityCreate(World* world) {
 			.index = free_list_index,
 			.version = world->ids[free_list_index].version,
 		};
-		world->ids[free_list_index].version = 0;
+		world->free_list_len -= 1;
 		return new_entt;
 	}
 	unsigned int new_index = world->ids_len;
-	world->ids_len += 1;
 	Entity new_entt = {
 		.index = new_index,
 		.version = 0,
 	};
+	world->ids_len += 1;
+	if(world->ids_len - 1 >= world->ids_capacity) {
+		world->ids_capacity = (world->ids_capacity << 1) + 1;
+		world->ids = (Entity*)realloc(world->ids, world->ids_capacity * sizeof(Entity));
+	}
+	world->ids[world->ids_len - 1] = new_entt;
 	return new_entt;
 }
+
 
 int entityValid(World* world, Entity entt) {
 	if(entt.index >= world->ids_len) {
 		return 0;
 	}
 	return world->ids[entt.index].version == entt.version;
+}
+
+void entityDestroy(World* world, Entity entt) {
+	assert(entityValid(world, entt));
+#undef COMPONENT
+#define COMPONENT(component) SparseSet ## component ## Remove(&(world)-> SparseSet ## component, entt.index);
+COMPONENTS
+	if(world->free_list_len == world->free_list_capacity) {
+		world->free_list_capacity = (world->free_list_capacity << 1) + 1;
+		world->free_list = (unsigned int*)realloc(world->free_list, world->free_list_capacity * sizeof(unsigned int));
+		world->free_list_len += 1;
+		world->free_list[world->free_list_len - 1] = entt.index;
+	}
+	world->ids[entt.index].version += 1;
 }
 
 #define WORLD_INIT(world_ptr) worldInit(world_ptr)
@@ -221,11 +252,39 @@ int entityValid(World* world, Entity entt) {
 
 #define ENTITY_VALID(world_ptr, entt) entityValid(world_ptr, entt)
 
-#define ENTITY_GET(world_ptr, entt, component) component ## Get(&(world_ptr)->SparseSet ## component, entt.index)
+#define ENTITY_HAS(world_ptr, entt, component) \
+	SparseSet ## component ## Contains(&(world_ptr)->SparseSet ## component, entt.index)
 
-#define ENTITY_GET_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; ENTITY_GET(world_ptr, entt, component)
 
-#define ENTITY_ADD(world_ptr, entt, component, data) component ## Add(&(world_ptr)-> SparseSet ## component, data, entt.index)
+#define ENTITY_GET(world_ptr, entt, component) \
+	SparseSet ## component ## Get(&(world_ptr)->SparseSet ## component, entt.index)
 
-#define ENTITY_REMOVE(world_ptr, entt, component) component ## Remove(&(world_ptr)-> SparseSet ## component, entt.index)
-#define ENTITY_REMOVE_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; ENTITY_REMOVE(world_ptr, entt, component)
+
+#define ENTITY_ADD(world_ptr, entt, component, data) \
+	SparseSet ## component ## Add(&(world_ptr)-> SparseSet ## component, data, entt.index)
+
+
+#define ENTITY_REMOVE(world_ptr, entt, component) \
+	SparseSet ## component ## Remove(&(world_ptr)-> SparseSet ## component, entt.index)
+
+// declare component funtions
+#undef COMPONENT
+#define COMPONENT(component) \
+	int component ## Has(World* world, Entity entt) { \
+		assert(entityValid(world, entt)); \
+		return ENTITY_HAS(world, entt, component); \
+	} \
+	component* component ## Get(World* world, Entity entt) { \
+		assert(ENTITY_HAS(world, entt, component)); \
+		return ENTITY_GET(world, entt, component); \
+	} \
+	void component ## Add(World* world, Entity entt, component data) { \
+		assert(!ENTITY_HAS(world, entt, component)); \
+		return ENTITY_ADD(world, entt, component, data); \
+	} \
+	void component ## Remove(World* world, Entity entt) { \
+		assert(ENTITY_HAS(world, entt, component)); \
+		return ENTITY_REMOVE(world, entt, component); \
+	}
+
+COMPONENTS

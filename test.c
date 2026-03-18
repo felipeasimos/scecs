@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -35,10 +36,12 @@ int main() {
 		.x = 1.2,
 		.y = 2.3,
 	};
-	ENTITY_ADD(&world, entt, Position, new_pos);
+	PositionAdd(&world, entt, new_pos);
 	printf("position added\n");
-	Position* just_added = ENTITY_GET(&world, entt, Position);
+	Position* just_added = PositionGet(&world, entt);
 	printf("just added x: %f, y: %f\n", just_added->x, just_added->y);
-	ENTITY_REMOVE(&world, entt, Position);
+	PositionRemove(&world, entt);
+	// PositionAdd(&world, entt, new_pos);
+	entityDestroy(&world, entt);
 	WORLD_DEINIT(&world);
 }
