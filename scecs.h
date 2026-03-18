@@ -12,7 +12,7 @@ typedef struct {
 typedef struct {
 	// 1 - based indices (0 value means NULL)
 	unsigned int dense_idxs[PAGE_SIZE];
-	unsigned int len;
+	unsigned int count;
 } SparseSetPage;
 
 typedef struct {
@@ -53,7 +53,7 @@ SparseSetPage* SS_getOrCreatePage(SparseSet* set, unsigned sparse_index) {
 		set->pages = (SparseSetPage**)realloc(set->pages, (set->pages_len + diff) * sizeof(SparseSetPage*));
 		for(unsigned int i = 0; i < diff; i++) {
 			set->pages[i + set->pages_len] = (SparseSetPage*)malloc(sizeof(SparseSetPage));
-			set->pages[i + set->pages_len]->len = 0;
+			set->pages[i + set->pages_len]->count = 0;
 			for(unsigned int j = 0; j < PAGE_SIZE; j++) set->pages[i + set->pages_len]->dense_idxs[j] = 0;
 		}
 		set->pages_len += diff;
@@ -74,7 +74,7 @@ int SS_add(SparseSet *set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getOrCreatePage(set, sparse_index);
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
 	page->dense_idxs[page_inner_index] = ++set->dense_len;
-	page->len += 1;
+	page->count += 1;
 	if(set->dense_len >= set->dense_capacity) {
 		set->dense_capacity = (set->dense_capacity << 1) + 1;
 		set->dense = (unsigned int*)realloc(set->dense, (set->dense_capacity) * sizeof(unsigned int));
@@ -91,10 +91,10 @@ int SS_remove(SparseSet *set, unsigned int sparse_index) {
 	SparseSetPage* page = SS_getPage(set, sparse_index);
 	if(!page) return 0;
 	unsigned int page_inner_index = SS_getPageInnerIndex(sparse_index);
-	if(page_inner_index >= page->len) return 0;
 	unsigned int dense_index = page->dense_idxs[page_inner_index] - 1;
 	if(dense_index >= set->dense_len) return 0;
 	page->dense_idxs[page_inner_index] = 0;
+	page->count -= 1;
 
 	if(dense_index == set->dense_len-1) {
 		goto final;
@@ -252,7 +252,7 @@ int entityValid(World* world, Entity entt) {
 	}
 	return world->ids[entt.index].version == entt.version;
 }
-#include<stdio.h>
+
 void entityDestroy(World* world, Entity entt) {
 	assert(entityValid(world, entt));
 #undef COMPONENT

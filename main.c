@@ -38,6 +38,7 @@ typedef struct {
 #include <math.h>
 
 #define FPS 120
+#define PLAYER_VELOCITY 100
 #define RECT_SIZE 10.0
 
 Entity createPlayer(World* world) {
@@ -45,6 +46,8 @@ Entity createPlayer(World* world) {
 	Position initial_player_pos = {
 		.x = GetScreenWidth() / 2.0,
 		.y = GetScreenHeight() / 2.0,
+		// .x = RECT_SIZE,
+		// .y = RECT_SIZE,
 	};
 	PositionAdd(world, player_entt, initial_player_pos);
 	Player p = {};
@@ -89,7 +92,7 @@ void renderingSystem(World* world) {
 	EntityIterator rects = RectEntityIterator(world);
 	Entity entt;
 	while(entityNext(&rects, &entt)) {
-		if(PositionHas(world, entt) && ColorHas(world, entt)) {
+		if(PositionHas(world, entt) && ColorHas(world, entt) && RectHas(world, entt)) {
 			Position pos = *PositionGet(world, entt);
 			Rect rect = *RectGet(world, entt);
 			Color color = *ColorGet(world, entt);
@@ -132,7 +135,7 @@ void velocitySystem(World* world) {
 void collisionSystem(World* world) {
 	EntityIterator p_iter = PlayerEntityIterator(world);
 	Entity player_entt;
-	assert(entityNext(&p_iter, &player_entt));
+	entityNext(&p_iter, &player_entt);
 
 	EntityIterator rects = RectEntityIterator(world);
 	Entity entt;
@@ -174,7 +177,30 @@ void timerSystem(World* world) {
 void movePlayerSystem(World* world) {
 	EntityIterator iter = PlayerEntityIterator(world);
 	Entity player_entt;
-	assert(entityNext(&iter, &player_entt));
+	entityNext(&iter, &player_entt);
+	if(PositionHas(world, player_entt) && RectHas(world, player_entt)) {
+		int x = 0;
+		int y = 0;
+		if (IsKeyDown(KEY_RIGHT)) {
+			x += 1;
+		}
+		if (IsKeyDown(KEY_LEFT)) {
+			x -= 1;
+		}
+		if (IsKeyDown(KEY_UP)) {
+			y -= 1;
+		}
+		if (IsKeyDown(KEY_DOWN)) {
+			y += 1;
+		}
+		if(x || y) {
+			float factor = x && y ? 0.7 : 1;
+			Position* pos = PositionGet(world, player_entt);
+			pos->x += (float)x * factor * ((float)PLAYER_VELOCITY / (float)FPS);
+			pos->y += (float)y * factor * ((float)PLAYER_VELOCITY / (float)FPS);
+		}
+	}
+
 }
 
 int main() {
