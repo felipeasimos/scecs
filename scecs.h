@@ -136,6 +136,7 @@ void SS_init(SparseSet* set) {
 	} \
 	void component ## Remove(SparseSet ## component* set, unsigned int sparse_index) { \
 		unsigned int dense_index = SS_remove(&set->set, sparse_index); \
+		if(set->set.dense_len == 0 || dense_index == set->set.dense_len - 1) return; \
 		set->data[dense_index] = set->data[set->set.dense_len]; \
 	} \
 	component* component ## Get(SparseSet ## component* set, unsigned int sparse_index) { \
@@ -222,9 +223,9 @@ int entityValid(World* world, Entity entt) {
 
 #define ENTITY_GET(world_ptr, entt, component) component ## Get(&(world_ptr)->SparseSet ## component, entt.index)
 
-#define ENTITY_GET_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; component ## Get(&(world_ptr)->(SparseSet ## component), entt.index)
+#define ENTITY_GET_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; ENTITY_GET(world_ptr, entt, component)
 
 #define ENTITY_ADD(world_ptr, entt, component, data) component ## Add(&(world_ptr)-> SparseSet ## component, data, entt.index)
 
-#define ENTITY_REMOVE(world_ptr, entt, component) component ## Remove(&(world_ptr)->(SparseSet ## component), entt.index)
-#define ENTITY_REMOVE_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; component ## Remove(&(world_ptr)->(SparseSet ## component), entt.index)
+#define ENTITY_REMOVE(world_ptr, entt, component) component ## Remove(&(world_ptr)-> SparseSet ## component, entt.index)
+#define ENTITY_REMOVE_ASSERT(world_ptr, entt, component) entityValid(world_ptr, entt) ; ENTITY_REMOVE(world_ptr, entt, component)

@@ -39,5 +39,6 @@ int main() {
 	printf("position added\n");
 	Position* just_added = ENTITY_GET(&world, entt, Position);
 	printf("just added x: %f, y: %f\n", just_added->x, just_added->y);
+	ENTITY_REMOVE(&world, entt, Position);
 	WORLD_DEINIT(&world);
 }
